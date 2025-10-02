@@ -19,12 +19,15 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class PartitionMaintenanceService {
 
     private final PartitionMaintenanceRepository partitionRepository;
     private final BlobServiceClient blobServiceClient;
+    private static final Logger logger = LoggerFactory.getLogger(PartitionMaintenanceService.class);
 
     public PartitionMaintenanceService(
             PartitionMaintenanceRepository partitionRepository,
@@ -41,29 +44,29 @@ public class PartitionMaintenanceService {
         List<String> partitions = partitionRepository.listPartitions();
         String currentPartition = findPartitionForToday(partitions);
         if (currentPartition == null) {
-            System.out.println("Nenhuma partição corresponde à data atual.");
+            logger.info("Nenhuma partição corresponde à data atual.");
             return CompletableFuture.completedFuture(null);
         }
 
-        System.out.println("Partição atual identificada: " + currentPartition);
+        logger.info("Partição atual identificada: {}", currentPartition);
 
         for (String partition : partitions) {
             if (partition.equalsIgnoreCase(currentPartition)) {
-                System.out.println("Chegou na partição atual, parando processamento.");
+                logger.info("Chegou na partição atual, parando processamento.");
                 break;
             }
-            System.out.println("Processando partição: " + partition);
+            logger.info("Processando partição: {}", partition);
             if (partitionRepository.isPartitionEmpty(partition)) {
-                System.out.println("Partição " + partition + " está vazia, apenas removendo.");
+                logger.info("Partição {} está vazia, apenas removendo.", partition);
             } else {
                 try (ResultSet rs = partitionRepository.getPartitionData(partition)) {
                     String csvData = CsvExportUtil.resultSetToCsv(rs);
                     uploadCsvToBlob(partition, csvData);
-                    System.out.println("Partição " + partition + " arquivada.");
+                    logger.info("Partição {} arquivada.", partition);
                 }
             }
             partitionRepository.dropPartition(partition);
-            System.out.println("Partição " + partition + " removida.");
+            logger.info("Partição {} removida.", partition);
         }
         return CompletableFuture.completedFuture(null);
     }

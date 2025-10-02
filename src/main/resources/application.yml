@@ -20,11 +20,11 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
         jdbc:
           batch_size: 100
-        order_inserts: true
-        order_updates: true
+        order_inserts: false
+        order_updates: false
 
 logging:
   level:

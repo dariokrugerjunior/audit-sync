@@ -17,6 +17,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class AuditTrailService {
@@ -24,6 +26,8 @@ public class AuditTrailService {
     private final AuditTrailRepository repository;
 
     private final BlobServiceClient blobServiceClient;
+
+    private static final Logger logger = LoggerFactory.getLogger(AuditTrailService.class);
 
     public AuditTrailService(
             AuditTrailRepository repository,
@@ -40,34 +44,16 @@ public class AuditTrailService {
 
     @Async
     @Transactional
-    public void syncAndPurgeOldData() {
-        LocalDateTime oldestDate = repository.findOldestChangedAt();
-        if (oldestDate == null) {
-            System.out.println("Sem dados para processar");
-            CompletableFuture.completedFuture(null);
-            return;
-        }
-
-        LocalDate now = LocalDate.now();
-        LocalDate oldestLocalDate = oldestDate.toLocalDate();
-
-        // Se o mês/ano mais antigo NÃO for o mês/ano atual
-        if (oldestLocalDate.getYear() == now.getYear() && oldestLocalDate.getMonthValue() == now.getMonthValue()) {
-            System.out.println("Mes atual é o mais antigo, nada para arquivar");
-            CompletableFuture.completedFuture(null);
-            return;
-        }
-
-        LocalDateTime start = oldestLocalDate.withDayOfMonth(1).atStartOfDay();
-        LocalDateTime end = oldestLocalDate.withDayOfMonth(oldestLocalDate.lengthOfMonth()).atTime(23, 59, 59);
-
-        List<AuditTrail> recordsToArchive = repository.findByChangedAtBetween(start, end);
+    public CompletableFuture<Void> syncAndPurgeOldData() {
+        LocalDateTime cutoffDate = LocalDateTime.now().minusDays(15);
+        List<AuditTrail> recordsToArchive = repository.findByChangedAtBefore(cutoffDate);
 
         if (recordsToArchive.isEmpty()) {
-            System.out.println("Sem registros no mês antigo para arquivar");
-            CompletableFuture.completedFuture(null);
-            return;
+            logger.info("Sem dados antigos para processar");
+            return CompletableFuture.completedFuture(null);
         }
+
+        LocalDate oldestLocalDate = recordsToArchive.get(0).getChangedAt().toLocalDate();
 
         StringBuilder csvBuilder = new StringBuilder();
         csvBuilder.append("id;action_type;table_name;changed_at;old_data;new_data\n");
@@ -96,9 +82,8 @@ public class AuditTrailService {
         blobClient.upload(dataStream, csvBytes.length, true);
 
         repository.deleteAll(recordsToArchive);
-        System.out.println("Arquivamento do mês " + folderName + " concluído e dados removidos.");
-
-        CompletableFuture.completedFuture(null);
+        logger.info("Arquivamento de dados até {} concluído e dados removidos.", cutoffDate);
+        return CompletableFuture.completedFuture(null);
     }
 
     private String escapeCsv(String value) {
