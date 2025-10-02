@@ -12,6 +12,8 @@ import javax.sql.DataSource;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,20 +31,29 @@ public class PartitionMaintenanceService {
                 .buildClient();
     }
 
-    private String getCurrentPartition() throws SQLException {
-        String sql = "SELECT inhrelid::regclass::text AS partition_name " +
-                "FROM pg_inherits " +
-                "WHERE inhparent = 'public.audit_trail_partitioned'::regclass " +
-                "ORDER BY partition_name DESC LIMIT 1";
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            if (rs.next()) {
-                return rs.getString("partition_name");
-            }
+    @Transactional
+    public void archiveAndDropOldPartitions() throws SQLException {
+        List<String> partitions = listPartitions();
+        String currentPartition = findPartitionForToday(partitions);
+        if (currentPartition == null) {
+            System.out.println("Nenhuma partição corresponde à data atual.");
+            return;
         }
-        return null;
+
+        System.out.println("Partição atual identificada: " + currentPartition);
+
+        for (String partition : partitions) {
+            // Pare de processar ao encontrar a partição atual (não processa ela e as posteriores)
+            if (partition.equalsIgnoreCase(currentPartition)) {
+                System.out.println("Chegou na partição atual, parando processamento.");
+                break;
+            }
+            System.out.println("Processando partição: " + partition);
+            String csvData = exportPartitionToCsv(partition);
+            uploadCsvToBlob(partition, csvData);
+            dropPartition(partition);
+            System.out.println("Partição " + partition + " arquivada e removida.");
+        }
     }
 
     private List<String> listPartitions() throws SQLException {
@@ -60,26 +71,24 @@ public class PartitionMaintenanceService {
         return partitions;
     }
 
-    @Transactional
-    public void archiveAndDropOldPartitions() throws SQLException {
-        String currentPartition = getCurrentPartition();
-        if (currentPartition == null) {
-            System.out.println("Nenhuma partição encontrada.");
-            return;
-        }
-        System.out.println("Partição atual identificada: " + currentPartition);
-
-        List<String> partitions = listPartitions();
+    private String findPartitionForToday(List<String> partitions) {
+        LocalDate today = LocalDate.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
 
         for (String partition : partitions) {
-            if (!partition.equalsIgnoreCase(currentPartition)) {
-                System.out.println("Processando partição: " + partition);
-                String csvData = exportPartitionToCsv(partition);
-                uploadCsvToBlob(partition, csvData);
-                dropPartition(partition);
-                System.out.println("Partição " + partition + " arquivada e removida.");
+            // Exemplo de nome: audit_trail_partitioned_20251001_20251015
+            String[] parts = partition.split("_");
+            String startStr = parts[parts.length - 2];
+            String endStr = parts[parts.length - 1];
+            LocalDate startDate = LocalDate.parse(startStr, formatter);
+            LocalDate endDate = LocalDate.parse(endStr, formatter);
+
+            if ((today.isEqual(startDate) || today.isAfter(startDate)) &&
+                    (today.isEqual(endDate) || today.isBefore(endDate))) {
+                return partition;
             }
         }
+        return null;
     }
 
     private String exportPartitionToCsv(String partition) throws SQLException {
@@ -90,14 +99,14 @@ public class PartitionMaintenanceService {
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
 
-            csvBuilder.append("id,action_type,table_name,changed_at,old_data,new_data\n");
+            csvBuilder.append("id;action_type;table_name;changed_at;old_data;new_data\n");
 
             while (rs.next()) {
-                csvBuilder.append(rs.getLong("id")).append(",");
-                csvBuilder.append("\"").append(rs.getString("action_type").replace("\"", "\"\"")).append("\",");
-                csvBuilder.append("\"").append(rs.getString("table_name").replace("\"", "\"\"")).append("\",");
-                csvBuilder.append(rs.getTimestamp("changed_at")).append(",");
-                csvBuilder.append("\"").append(rs.getString("old_data").replace("\"", "\"\"")).append("\",");
+                csvBuilder.append(rs.getLong("id")).append(";");
+                csvBuilder.append("\"").append(rs.getString("action_type").replace("\"", "\"\"")).append("\";");
+                csvBuilder.append("\"").append(rs.getString("table_name").replace("\"", "\"\"")).append("\";");
+                csvBuilder.append(rs.getTimestamp("changed_at")).append(";");
+                csvBuilder.append("\"").append(rs.getString("old_data").replace("\"", "\"\"")).append("\";");
                 csvBuilder.append("\"").append(rs.getString("new_data").replace("\"", "\"\"")).append("\"\n");
             }
         }
@@ -105,7 +114,7 @@ public class PartitionMaintenanceService {
     }
 
     private void uploadCsvToBlob(String partitionName, String csvData) {
-        BlobContainerClient containerClient = blobServiceClient.getBlobContainerClient("audit_trail");
+        BlobContainerClient containerClient = blobServiceClient.getBlobContainerClient("audit-trail");
         if (!containerClient.exists()) {
             containerClient.create();
         }
