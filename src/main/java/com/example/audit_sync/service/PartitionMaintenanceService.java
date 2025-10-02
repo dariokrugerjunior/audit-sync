@@ -44,29 +44,29 @@ public class PartitionMaintenanceService {
         List<String> partitions = partitionRepository.listPartitions();
         String currentPartition = findPartitionForToday(partitions);
         if (currentPartition == null) {
-            logger.info("Nenhuma partição corresponde à data atual.");
+            logger.info("Nenhuma particao corresponde à data atual.");
             return CompletableFuture.completedFuture(null);
         }
 
-        logger.info("Partição atual identificada: {}", currentPartition);
+        logger.info("Particao atual identificada: {}", currentPartition);
 
         for (String partition : partitions) {
             if (partition.equalsIgnoreCase(currentPartition)) {
-                logger.info("Chegou na partição atual, parando processamento.");
+                logger.info("Chegou na particao atual, parando processamento.");
                 break;
             }
-            logger.info("Processando partição: {}", partition);
+            logger.info("Processando particao: {}", partition);
             if (partitionRepository.isPartitionEmpty(partition)) {
-                logger.info("Partição {} está vazia, apenas removendo.", partition);
+                logger.info("Particao {} está vazia, apenas removendo.", partition);
             } else {
                 try (ResultSet rs = partitionRepository.getPartitionData(partition)) {
                     String csvData = CsvExportUtil.resultSetToCsv(rs);
                     uploadCsvToBlob(partition, csvData);
-                    logger.info("Partição {} arquivada.", partition);
+                    logger.info("Particao {} arquivada.", partition);
                 }
             }
             partitionRepository.dropPartition(partition);
-            logger.info("Partição {} removida.", partition);
+            logger.info("Particao {} removida.", partition);
         }
         return CompletableFuture.completedFuture(null);
     }
