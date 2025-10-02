@@ -7,6 +7,7 @@ import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.example.audit_sync.repository.PartitionMaintenanceRepository;
 import com.example.audit_sync.utils.CsvExportUtil;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +18,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 public class PartitionMaintenanceService {
@@ -33,13 +35,14 @@ public class PartitionMaintenanceService {
                 .buildClient();
     }
 
+    @Async
     @Transactional
-    public void archiveAndDropOldPartitions() throws SQLException {
+    public CompletableFuture<Void> archiveAndDropOldPartitions() throws SQLException {
         List<String> partitions = partitionRepository.listPartitions();
         String currentPartition = findPartitionForToday(partitions);
         if (currentPartition == null) {
             System.out.println("Nenhuma partição corresponde à data atual.");
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         System.out.println("Partição atual identificada: " + currentPartition);
@@ -62,6 +65,7 @@ public class PartitionMaintenanceService {
             partitionRepository.dropPartition(partition);
             System.out.println("Partição " + partition + " removida.");
         }
+        return CompletableFuture.completedFuture(null);
     }
 
     private String findPartitionForToday(List<String> partitions) {

@@ -6,8 +6,8 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.example.audit_sync.model.AuditTrail;
 import com.example.audit_sync.repository.jpa.AuditTrailRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,12 +16,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 public class AuditTrailService {
 
     private final AuditTrailRepository repository;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final BlobServiceClient blobServiceClient;
 
@@ -38,14 +38,15 @@ public class AuditTrailService {
     //CREATE INDEX CONCURRENTLY idx_audit_trail_action_type ON audit_trail (action_type);
     //CREATE INDEX CONCURRENTLY idx_audit_trail_changed_at ON audit_trail (changed_at);
 
+    @Async
     @Transactional
-    public void syncAndPurgeOldData() {
+    public CompletableFuture<Void> syncAndPurgeOldData() {
         LocalDateTime cutoffDate = LocalDateTime.now().minusDays(15);
         List<AuditTrail> recordsToArchive = repository.findByChangedAtBefore(cutoffDate);
 
         if (recordsToArchive.isEmpty()) {
             System.out.println("Sem dados antigos para processar");
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         StringBuilder csvBuilder = new StringBuilder();
@@ -79,6 +80,7 @@ public class AuditTrailService {
         repository.deleteAll(recordsToArchive);
 
         System.out.println("Arquivamento de dados até " + cutoffDate + " concluído e dados removidos.");
+        return CompletableFuture.completedFuture(null);
     }
 
     private String escapeCsv(String value) {
