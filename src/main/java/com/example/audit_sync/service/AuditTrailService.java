@@ -48,9 +48,8 @@ public class AuditTrailService {
             return;
         }
 
-        // Montar CSV
         StringBuilder csvBuilder = new StringBuilder();
-        csvBuilder.append("id,action_type,table_name,changed_at,old_data,new_data\n");
+        csvBuilder.append("id;action_type;table_name;changed_at;old_data;new_data\n");
 
         for (AuditTrail audit : recordsToArchive) {
             csvBuilder.append(audit.getId()).append(";");
@@ -63,8 +62,7 @@ public class AuditTrailService {
 
         byte[] csvBytes = csvBuilder.toString().getBytes(StandardCharsets.UTF_8);
 
-        // Upload Blob
-        BlobContainerClient containerClient = blobServiceClient.getBlobContainerClient("audit_trail");
+        BlobContainerClient containerClient = blobServiceClient.getBlobContainerClient("audit-trail-old");
         if (!containerClient.exists()) {
             containerClient.create();
         }
