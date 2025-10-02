@@ -1,7 +1,6 @@
 azure:
   storage:
-    connection-string: DefaultEndpointsProtocol=https;AccountName=stvvvlbrsouth001dev;AccountKey=SmWESpluOfB4UrevZVXos+eyejpwKuFPtb9gcBc5HFlPu0sb3m162sEiPwlpOz3LCZu0AlHTJzZ5+AStz10B7w==;EndpointSuffix=core.windows.net
-
+    connection-string: ${AZURE_STORAGE_CONNECTION_STRING}
 spring:
   main:
     allow-bean-definition-overriding: true
