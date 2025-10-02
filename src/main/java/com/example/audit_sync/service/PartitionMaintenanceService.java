@@ -43,17 +43,33 @@ public class PartitionMaintenanceService {
         System.out.println("Partição atual identificada: " + currentPartition);
 
         for (String partition : partitions) {
-            // Pare de processar ao encontrar a partição atual (não processa ela e as posteriores)
             if (partition.equalsIgnoreCase(currentPartition)) {
                 System.out.println("Chegou na partição atual, parando processamento.");
                 break;
             }
             System.out.println("Processando partição: " + partition);
-            String csvData = exportPartitionToCsv(partition);
-            uploadCsvToBlob(partition, csvData);
+            if (isPartitionEmpty(partition)) {
+                System.out.println("Partição " + partition + " está vazia, apenas removendo.");
+            } else {
+                String csvData = exportPartitionToCsv(partition);
+                uploadCsvToBlob(partition, csvData);
+                System.out.println("Partição " + partition + " arquivada.");
+            }
             dropPartition(partition);
-            System.out.println("Partição " + partition + " arquivada e removida.");
+            System.out.println("Partição " + partition + " removida.");
         }
+    }
+
+    private boolean isPartitionEmpty(String partition) throws SQLException {
+        String sql = "SELECT COUNT(1) FROM " + partition;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return rs.getInt(1) == 0;
+            }
+        }
+        return true;
     }
 
     private List<String> listPartitions() throws SQLException {
