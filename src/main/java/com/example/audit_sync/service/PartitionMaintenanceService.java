@@ -4,28 +4,30 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.specialized.BlockBlobClient;
+import com.example.audit_sync.repository.PartitionMaintenanceRepository;
+import com.example.audit_sync.utils.CsvExportUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.sql.DataSource;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.sql.*;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class PartitionMaintenanceService {
 
-    private final DataSource dataSource;
+    private final PartitionMaintenanceRepository partitionRepository;
     private final BlobServiceClient blobServiceClient;
 
-    public PartitionMaintenanceService(DataSource dataSource,
-                                       @Value("${azure.storage.connection-string}") String connectionString) {
-        this.dataSource = dataSource;
+    public PartitionMaintenanceService(
+            PartitionMaintenanceRepository partitionRepository,
+            @Value("${azure.storage.connection-string}") String connectionString) {
+        this.partitionRepository = partitionRepository;
         this.blobServiceClient = new BlobServiceClientBuilder()
                 .connectionString(connectionString)
                 .buildClient();
@@ -33,7 +35,7 @@ public class PartitionMaintenanceService {
 
     @Transactional
     public void archiveAndDropOldPartitions() throws SQLException {
-        List<String> partitions = listPartitions();
+        List<String> partitions = partitionRepository.listPartitions();
         String currentPartition = findPartitionForToday(partitions);
         if (currentPartition == null) {
             System.out.println("Nenhuma partição corresponde à data atual.");
@@ -48,43 +50,18 @@ public class PartitionMaintenanceService {
                 break;
             }
             System.out.println("Processando partição: " + partition);
-            if (isPartitionEmpty(partition)) {
+            if (partitionRepository.isPartitionEmpty(partition)) {
                 System.out.println("Partição " + partition + " está vazia, apenas removendo.");
             } else {
-                String csvData = exportPartitionToCsv(partition);
-                uploadCsvToBlob(partition, csvData);
-                System.out.println("Partição " + partition + " arquivada.");
+                try (ResultSet rs = partitionRepository.getPartitionData(partition)) {
+                    String csvData = CsvExportUtil.resultSetToCsv(rs);
+                    uploadCsvToBlob(partition, csvData);
+                    System.out.println("Partição " + partition + " arquivada.");
+                }
             }
-            dropPartition(partition);
+            partitionRepository.dropPartition(partition);
             System.out.println("Partição " + partition + " removida.");
         }
-    }
-
-    private boolean isPartitionEmpty(String partition) throws SQLException {
-        String sql = "SELECT COUNT(1) FROM " + partition;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            if (rs.next()) {
-                return rs.getInt(1) == 0;
-            }
-        }
-        return true;
-    }
-
-    private List<String> listPartitions() throws SQLException {
-        List<String> partitions = new ArrayList<>();
-        String sql = "SELECT inhrelid::regclass::text AS partition_name FROM pg_inherits " +
-                "WHERE inhparent = 'public.audit_trail_partitioned'::regclass;";
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                partitions.add(rs.getString("partition_name"));
-            }
-        }
-        return partitions;
     }
 
     private String findPartitionForToday(List<String> partitions) {
@@ -107,28 +84,6 @@ public class PartitionMaintenanceService {
         return null;
     }
 
-    private String exportPartitionToCsv(String partition) throws SQLException {
-        StringBuilder csvBuilder = new StringBuilder();
-        String sql = "SELECT id, action_type, table_name, changed_at, old_data, new_data FROM " + partition;
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-
-            csvBuilder.append("id;action_type;table_name;changed_at;old_data;new_data\n");
-
-            while (rs.next()) {
-                csvBuilder.append(rs.getLong("id")).append(";");
-                csvBuilder.append("\"").append(rs.getString("action_type").replace("\"", "\"\"")).append("\";");
-                csvBuilder.append("\"").append(rs.getString("table_name").replace("\"", "\"\"")).append("\";");
-                csvBuilder.append(rs.getTimestamp("changed_at")).append(";");
-                csvBuilder.append("\"").append(rs.getString("old_data").replace("\"", "\"\"")).append("\";");
-                csvBuilder.append("\"").append(rs.getString("new_data").replace("\"", "\"\"")).append("\"\n");
-            }
-        }
-        return csvBuilder.toString();
-    }
-
     private void uploadCsvToBlob(String partitionName, String csvData) {
         BlobContainerClient containerClient = blobServiceClient.getBlobContainerClient("audit-trail");
         if (!containerClient.exists()) {
@@ -139,13 +94,5 @@ public class PartitionMaintenanceService {
 
         ByteArrayInputStream dataStream = new ByteArrayInputStream(csvData.getBytes(StandardCharsets.UTF_8));
         blobClient.upload(dataStream, csvData.length(), true);
-    }
-
-    private void dropPartition(String partitionName) throws SQLException {
-        String sql = "DROP TABLE IF EXISTS " + partitionName;
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-        }
     }
 }
