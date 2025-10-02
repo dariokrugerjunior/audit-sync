@@ -40,13 +40,33 @@ public class AuditTrailService {
 
     @Async
     @Transactional
-    public CompletableFuture<Void> syncAndPurgeOldData() {
-        LocalDateTime cutoffDate = LocalDateTime.now().minusDays(15);
-        List<AuditTrail> recordsToArchive = repository.findByChangedAtBefore(cutoffDate);
+    public void syncAndPurgeOldData() {
+        LocalDateTime oldestDate = repository.findOldestChangedAt();
+        if (oldestDate == null) {
+            System.out.println("Sem dados para processar");
+            CompletableFuture.completedFuture(null);
+            return;
+        }
+
+        LocalDate now = LocalDate.now();
+        LocalDate oldestLocalDate = oldestDate.toLocalDate();
+
+        // Se o mês/ano mais antigo NÃO for o mês/ano atual
+        if (oldestLocalDate.getYear() == now.getYear() && oldestLocalDate.getMonthValue() == now.getMonthValue()) {
+            System.out.println("Mes atual é o mais antigo, nada para arquivar");
+            CompletableFuture.completedFuture(null);
+            return;
+        }
+
+        LocalDateTime start = oldestLocalDate.withDayOfMonth(1).atStartOfDay();
+        LocalDateTime end = oldestLocalDate.withDayOfMonth(oldestLocalDate.lengthOfMonth()).atTime(23, 59, 59);
+
+        List<AuditTrail> recordsToArchive = repository.findByChangedAtBetween(start, end);
 
         if (recordsToArchive.isEmpty()) {
-            System.out.println("Sem dados antigos para processar");
-            return CompletableFuture.completedFuture(null);
+            System.out.println("Sem registros no mês antigo para arquivar");
+            CompletableFuture.completedFuture(null);
+            return;
         }
 
         StringBuilder csvBuilder = new StringBuilder();
@@ -68,19 +88,17 @@ public class AuditTrailService {
             containerClient.create();
         }
 
-        LocalDate cutoffLocalDate = cutoffDate.toLocalDate();
-        String folderName = String.format("%02d-%d", cutoffLocalDate.getMonthValue(), cutoffLocalDate.getYear());
-        String safeFolderName = folderName.replaceAll("[^a-zA-Z0-9-]", "");
-        String blobName = safeFolderName + "/audit_data.csv";
+        String folderName = String.format("%02d-%d", oldestLocalDate.getMonthValue(), oldestLocalDate.getYear());
+        String blobName = folderName + "/audit_data.csv";
 
         BlockBlobClient blobClient = containerClient.getBlobClient(blobName).getBlockBlobClient();
         ByteArrayInputStream dataStream = new ByteArrayInputStream(csvBytes);
         blobClient.upload(dataStream, csvBytes.length, true);
 
         repository.deleteAll(recordsToArchive);
+        System.out.println("Arquivamento do mês " + folderName + " concluído e dados removidos.");
 
-        System.out.println("Arquivamento de dados até " + cutoffDate + " concluído e dados removidos.");
-        return CompletableFuture.completedFuture(null);
+        CompletableFuture.completedFuture(null);
     }
 
     private String escapeCsv(String value) {
