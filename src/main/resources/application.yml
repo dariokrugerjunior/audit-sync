@@ -1,0 +1,32 @@
+azure:
+  storage:
+    connection-string: DefaultEndpointsProtocol=https;AccountName=stvvvlbrsouth001dev;AccountKey=SmWESpluOfB4UrevZVXos+eyejpwKuFPtb9gcBc5HFlPu0sb3m162sEiPwlpOz3LCZu0AlHTJzZ5+AStz10B7w==;EndpointSuffix=core.windows.net
+
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  application:
+    name: ${APPLICATION_NAME:ms-audit-sync}
+  output:
+    ansi:
+      enabled: ALWAYS
+
+  datasource:
+    primary:
+      jdbc-url: ${DB_URL_ADMIN}
+      driver-class-name: org.postgresql.Driver
+
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 100
+        order_inserts: true
+        order_updates: true
+
+logging:
+  level:
+    org.springframework.jdbc.datasource: DEBUG
+    org.hibernate.SQL: DEBUG
