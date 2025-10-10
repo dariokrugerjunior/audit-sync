@@ -12,7 +12,7 @@ Este projeto realiza a sincronização, arquivamento e manutenção de trilhas d
 Antes de executar o projeto, é necessário configurar as variáveis de ambiente no sistema ou no arquivo de configuração (application.yml). As principais variáveis são:
 
 ```
-DB_URL_ADMIN=postgresql://vvvl_dev_admin:W9wCJJYPxOyRDzkr0Rvr@pgsqlf-vvvl-brsouth-001-dev.postgres.database.azure.com:5432/vvvl_dev_admin
+DB_URL_ADMIN=postgresql://localhost:5333
 AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net
 ```
 
