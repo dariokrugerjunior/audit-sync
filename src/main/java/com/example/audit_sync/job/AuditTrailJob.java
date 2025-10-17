@@ -20,7 +20,7 @@ public class AuditTrailJob implements Job {
     @Override
     public void execute(JobExecutionContext context) throws JobExecutionException {
         try {
-            auditTrailService.syncAndPurgeOldData();
+            auditTrailService.syncAndPurgeOldDataBatch();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
